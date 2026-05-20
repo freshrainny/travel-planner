@@ -1,0 +1,2720 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 旅行规划师</title>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    /* ===== Reset & Base ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    .hidden { display: none !important; }
+    :root {
+      --bg: #f7f8fa;
+      --surface: #ffffff;
+      --border: #e4e7ec;
+      --border-hover: #c2c9d6;
+      --primary: #4f6ef7;
+      --primary-dark: #3a57e8;
+      --primary-light: #eef1fe;
+      --accent: #ff7043;
+      --success: #34c759;
+      --warning: #ff9f0a;
+      --text: #1a1d23;
+      --text-secondary: #6b7280;
+      --text-muted: #9ca3af;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.04);
+      --shadow-md: 0 4px 12px rgba(0,0,0,.12);
+    }
+    html { font-size: 15px; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ===== Layout ===== */
+    .app { display: flex; flex-direction: column; min-height: 100vh; }
+
+    /* ===== Header ===== */
+    .header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: var(--text);
+    }
+    .header-logo .icon { font-size: 1.4rem; }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+
+    /* ===== Buttons ===== */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      font-size: .875rem;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all .15s;
+      white-space: nowrap;
+    }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-dark); border-color: var(--primary-dark); }
+    .btn-secondary {
+      background: var(--surface);
+      color: var(--text);
+      border-color: var(--border);
+    }
+    .btn-secondary:hover:not(:disabled) { border-color: var(--border-hover); background: var(--bg); }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-secondary);
+      border-color: transparent;
+      padding: 6px 10px;
+    }
+    .btn-ghost:hover:not(:disabled) { background: var(--bg); color: var(--text); }
+    .btn-danger { background: #fff1f0; color: #e53e3e; border-color: #fca5a5; }
+    .btn-danger:hover:not(:disabled) { background: #ffe4e4; }
+    .btn-sm { padding: 5px 10px; font-size: .8rem; }
+    .btn-icon { padding: 6px; border-radius: 6px; }
+
+    /* ===== Main Area ===== */
+    .main {
+      flex: 1;
+      display: flex;
+      gap: 0;
+      /* 让 main 撑满剩余高度，左右各自独立滚动 */
+      height: calc(100vh - 56px);
+      overflow: hidden;
+    }
+
+    /* ===== Input Panel (Left) ===== */
+    .input-panel {
+      width: 320px;
+      min-width: 280px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+    .panel-title {
+      font-size: .7rem;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-label {
+      font-size: .85rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+    .form-input, .form-select, .form-textarea {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: .875rem;
+      color: var(--text);
+      background: var(--surface);
+      transition: border-color .15s;
+      outline: none;
+      font-family: inherit;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(79,110,247,.1);
+    }
+    .form-textarea { resize: vertical; min-height: 80px; }
+    .form-hint { font-size: .78rem; color: var(--text-muted); }
+
+    .api-key-section {
+      background: var(--primary-light);
+      border-radius: var(--radius-sm);
+      padding: 14px;
+    }
+    .api-key-title {
+      font-size: .85rem;
+      font-weight: 600;
+      color: var(--primary);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .api-key-input-wrap { position: relative; }
+    .api-key-input-wrap input {
+      padding-right: 40px;
+    }
+    .toggle-key-btn {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text-muted);
+      font-size: 1rem;
+      padding: 2px;
+    }
+
+    .generate-btn {
+      width: 100%;
+      justify-content: center;
+      padding: 12px;
+      font-size: 1rem;
+      border-radius: var(--radius-sm);
+    }
+
+    /* ===== Content Area (Right) ===== */
+    .content-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      /* 独立滚动，不影响左侧 */
+      height: 100%;
+    }
+
+    /* ===== Empty State ===== */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      min-height: 400px;
+      gap: 16px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+    .empty-state-icon { font-size: 4rem; opacity: .6; }
+    .empty-state h2 { font-size: 1.2rem; color: var(--text-secondary); font-weight: 600; }
+    .empty-state p { font-size: .9rem; max-width: 320px; line-height: 1.6; }
+
+    /* ===== Loading State ===== */
+    .loading-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      min-height: 400px;
+      gap: 16px;
+    }
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 3px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { color: var(--text-secondary); font-size: .95rem; }
+    .loading-sub { color: var(--text-muted); font-size: .8rem; }
+
+    /* ===== Trip Header ===== */
+    .trip-header {
+      background: linear-gradient(135deg, #4f6ef7 0%, #7c3aed 100%);
+      color: #fff;
+      border-radius: var(--radius);
+      padding: 24px 28px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .trip-header-info h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 6px; }
+    .trip-header-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .trip-meta-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(255,255,255,.2);
+      padding: 4px 10px;
+      border-radius: 100px;
+      font-size: .8rem;
+      font-weight: 500;
+    }
+    .trip-header-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .btn-white {
+      background: rgba(255,255,255,.2);
+      color: #fff;
+      border-color: rgba(255,255,255,.3);
+      backdrop-filter: blur(4px);
+    }
+    .btn-white:hover:not(:disabled) { background: rgba(255,255,255,.3); }
+
+    /* ===== Day Section ===== */
+    .days-container { display: flex; flex-direction: column; gap: 16px; }
+    .day-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      transition: box-shadow .15s;
+    }
+    .day-card:hover { box-shadow: var(--shadow-md); }
+
+    .day-header {
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      user-select: none;
+      background: var(--bg);
+    }
+    .day-header:hover { background: #f0f2f8; }
+    .day-number {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: #fff;
+      font-weight: 700;
+      font-size: .85rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .day-info { flex: 1; min-width: 0; }
+    .day-title { font-weight: 600; font-size: .95rem; }
+    .day-subtitle { font-size: .78rem; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .day-actions { display: flex; gap: 4px; align-items: center; }
+    .day-collapse-icon {
+      color: var(--text-muted);
+      font-size: .9rem;
+      transition: transform .2s;
+    }
+    .day-card.collapsed .day-collapse-icon { transform: rotate(-90deg); }
+
+    .day-body { padding: 16px 18px; }
+    .day-card.collapsed .day-body { display: none; }
+
+    /* ===== Activity Cards ===== */
+    .activities-list { display: flex; flex-direction: column; gap: 10px; }
+    .activity-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      cursor: grab;
+      transition: all .15s;
+    }
+    .activity-item:hover { border-color: var(--border-hover); box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+    .activity-item.sortable-ghost { opacity: .4; background: var(--primary-light); }
+    .activity-item.sortable-chosen { cursor: grabbing; box-shadow: var(--shadow-md); }
+
+    .drag-handle {
+      color: var(--text-muted);
+      cursor: grab;
+      font-size: 1rem;
+      padding: 2px 0;
+      flex-shrink: 0;
+    }
+    .activity-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      flex-shrink: 0;
+    }
+    .activity-content { flex: 1; min-width: 0; }
+    .activity-name {
+      font-weight: 600;
+      font-size: .9rem;
+      margin-bottom: 3px;
+    }
+    .activity-desc {
+      font-size: .8rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+    .activity-time {
+      font-size: .75rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .activity-note {
+      font-size: .78rem;
+      color: var(--primary);
+      margin-top: 4px;
+      padding: 4px 8px;
+      background: var(--primary-light);
+      border-radius: 4px;
+      font-style: italic;
+    }
+    .activity-actions {
+      display: flex;
+      gap: 2px;
+      align-items: flex-start;
+      flex-shrink: 0;
+      opacity: 0;
+      transition: opacity .15s;
+    }
+    .activity-item:hover .activity-actions { opacity: 1; }
+
+    .add-activity-btn {
+      width: 100%;
+      border: 1px dashed var(--border);
+      background: transparent;
+      padding: 8px;
+      border-radius: var(--radius-sm);
+      font-size: .82rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all .15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .add-activity-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+
+    .day-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+    .day-note-display {
+      font-size: .8rem;
+      color: var(--text-secondary);
+      font-style: italic;
+      flex: 1;
+    }
+    .day-note-display:empty::before {
+      content: "点击添加当天备注...";
+      color: var(--text-muted);
+    }
+
+    /* ===== Type colors ===== */
+    .type-attraction .activity-icon { background: #fff3e0; }
+    .type-food .activity-icon { background: #fce4ec; }
+    .type-transport .activity-icon { background: #e8f5e9; }
+    .type-hotel .activity-icon { background: #e3f2fd; }
+    .type-activity .activity-icon { background: #f3e5f5; }
+    .type-rest .activity-icon { background: #f5f5f5; }
+
+    /* ===== Modals ===== */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.5);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      backdrop-filter: blur(2px);
+    }
+    .modal-overlay.hidden { display: none; }
+    .modal {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 28px;
+      width: 100%;
+      max-width: 500px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.2);
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    .modal-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .modal-form { display: flex; flex-direction: column; gap: 14px; }
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 20px;
+    }
+
+    /* ===== AI Replan Modal ===== */
+    .replan-modal .modal { max-width: 520px; }
+
+    /* ===== Attraction Guide Modal ===== */
+    .guide-modal .modal {
+      max-width: 620px;
+      padding: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      max-height: 85vh;
+    }
+    .guide-modal-header {
+      padding: 22px 24px 0;
+      background: linear-gradient(135deg, var(--primary) 0%, #5a67d8 100%);
+      color: #fff;
+      border-radius: var(--radius) var(--radius) 0 0;
+      flex-shrink: 0;
+    }
+    .guide-modal-name {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .guide-modal-subtitle {
+      font-size: .8rem;
+      opacity: .75;
+      margin-bottom: 14px;
+    }
+    .guide-tabs {
+      display: flex;
+      gap: 0;
+      margin-top: 6px;
+    }
+    .guide-tab {
+      padding: 8px 16px;
+      font-size: .82rem;
+      font-weight: 600;
+      color: rgba(255,255,255,.65);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color .15s, border-color .15s;
+      user-select: none;
+    }
+    .guide-tab.active {
+      color: #fff;
+      border-bottom-color: #fff;
+    }
+    .guide-tab:hover:not(.active) { color: rgba(255,255,255,.85); }
+    .guide-modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+    }
+    .guide-panel { display: none; }
+    .guide-panel.active { display: block; }
+    .guide-section {
+      margin-bottom: 18px;
+    }
+    .guide-section-title {
+      font-size: .8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .guide-info-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: .88rem;
+      line-height: 1.5;
+    }
+    .guide-info-row:last-child { border-bottom: none; }
+    .guide-info-label {
+      color: var(--text-muted);
+      font-weight: 600;
+      min-width: 64px;
+      flex-shrink: 0;
+    }
+    .guide-info-value { color: var(--text); flex: 1; }
+    .guide-food-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+      transition: box-shadow .15s;
+    }
+    .guide-food-card:hover { box-shadow: 0 2px 10px rgba(0,0,0,.07); }
+    .guide-food-name {
+      font-weight: 700;
+      font-size: .92rem;
+      margin-bottom: 3px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .guide-food-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-bottom: 5px;
+    }
+    .guide-food-tag {
+      font-size: .72rem;
+      padding: 2px 7px;
+      border-radius: 20px;
+      background: rgba(102,126,234,.1);
+      color: var(--primary);
+      border: 1px solid rgba(102,126,234,.2);
+    }
+    .guide-food-desc {
+      font-size: .82rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+    .guide-tips-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .guide-tips-list li {
+      padding: 7px 0 7px 20px;
+      font-size: .88rem;
+      line-height: 1.5;
+      border-bottom: 1px solid var(--border);
+      position: relative;
+      color: var(--text);
+    }
+    .guide-tips-list li::before {
+      content: "⚠️";
+      position: absolute;
+      left: 0;
+      top: 7px;
+      font-size: .75rem;
+    }
+    .guide-tips-list li:last-child { border-bottom: none; }
+    .guide-ai-loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      padding: 40px 20px;
+      color: var(--text-muted);
+      font-size: .88rem;
+    }
+    .guide-spinner {
+      width: 32px; height: 32px;
+      border: 3px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    .guide-ai-error {
+      text-align: center;
+      padding: 30px;
+      color: #e74c3c;
+      font-size: .88rem;
+    }
+    .guide-modal-footer {
+      padding: 14px 24px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .guide-regenerate-btn {
+      font-size: .8rem;
+    }
+
+    /* ===== Toast ===== */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .toast {
+      background: var(--text);
+      color: #fff;
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      font-size: .875rem;
+      box-shadow: var(--shadow-md);
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      animation: slideIn .3s ease;
+      max-width: 320px;
+    }
+    .toast.success { background: #1a7a46; }
+    .toast.error { background: #c53030; }
+    .toast.warning { background: #b7551a; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* ===== Scrollbar ===== */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
+
+    /* ===== Tabs ===== */
+    .content-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      margin-bottom: 20px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .tab-btn {
+      padding: 10px 20px;
+      font-size: .875rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ===== Map Panel ===== */
+    #mapContainer {
+      height: calc(100vh - 200px);
+      min-height: 400px;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .map-legend {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      margin-bottom: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      font-size: .82rem;
+      color: var(--text-secondary);
+    }
+    .map-legend-item { display: flex; align-items: center; gap: 5px; }
+    .legend-dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .map-day-filter {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .day-filter-btn {
+      padding: 4px 10px;
+      border-radius: 100px;
+      font-size: .78rem;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      cursor: pointer;
+      transition: all .15s;
+      color: var(--text-secondary);
+    }
+    .day-filter-btn.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+
+    /* ===== Export Panel ===== */
+    .export-modal .modal { max-width: 600px; }
+    .export-text {
+      font-size: .82rem;
+      white-space: pre-wrap;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 16px;
+      max-height: 400px;
+      overflow-y: auto;
+      font-family: monospace;
+      line-height: 1.7;
+    }
+
+    /* ===== Day Detail Loading ===== */
+    .day-detail-loading {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 0 8px;
+      color: var(--text-muted);
+      font-size: .85rem;
+    }
+    .day-detail-loading .mini-spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      flex-shrink: 0;
+    }
+    .load-detail-btn {
+      width: 100%;
+      background: var(--primary-light);
+      border: 1px dashed var(--primary);
+      color: var(--primary);
+      padding: 10px;
+      border-radius: var(--radius-sm);
+      font-size: .85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all .15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .load-detail-btn:hover { background: #dde4fd; }
+    .load-detail-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 768px) {
+      .main { flex-direction: column; height: auto; overflow: visible; }
+      .input-panel { width: 100%; border-right: none; border-bottom: 1px solid var(--border); height: auto; overflow: visible; }
+      .content-area { height: auto; }
+      .trip-header { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-logo">
+      <span class="icon">✈️</span>
+      <span>AI 旅行规划师</span>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-secondary btn-sm" id="exportBtn" style="display:none">
+        📋 导出行程
+      </button>
+      <button class="btn btn-secondary btn-sm" id="printBtn" style="display:none">
+        🖨️ 打印
+      </button>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- Left: Input Panel -->
+    <aside class="input-panel">
+      <div>
+        <div class="panel-title">✦ 行程设置</div>
+
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          <div class="form-group">
+            <label class="form-label">目的地城市 <span style="color:#e53e3e">*</span></label>
+            <input class="form-input" id="destinations" placeholder="如：罗马, 威尼斯, 佛罗伦萨" />
+            <span class="form-hint">多个城市用逗号分隔，会自动规划游览顺序</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">出发城市</label>
+            <input class="form-input" id="departure" placeholder="如：上海" />
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+            <div class="form-group">
+              <label class="form-label">出发日期</label>
+              <input class="form-input" type="date" id="startDate" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">返回日期</label>
+              <input class="form-input" type="date" id="endDate" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">旅行风格</label>
+            <select class="form-select" id="style">
+              <option value="balanced">均衡（文化+美食+休闲）</option>
+              <option value="cultural">文化深度游</option>
+              <option value="food">美食探索</option>
+              <option value="nature">自然风光</option>
+              <option value="relaxed">轻松休闲</option>
+              <option value="adventure">户外冒险</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">出行人数</label>
+            <select class="form-select" id="groupSize">
+              <option value="solo">独行</option>
+              <option value="couple" selected>2人</option>
+              <option value="family">家庭（含小孩）</option>
+              <option value="group">多人团体</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">特殊要求（可选）</label>
+            <textarea class="form-textarea" id="requirements" placeholder="如：不喜欢排队超过1小时的景点；需要适合婴儿车的路线；对美食要求高..."></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Provider & API Key -->
+      <div class="api-key-section">
+        <div class="api-key-title">🤖 AI 模型设置</div>
+
+        <div class="form-group" style="margin-bottom:10px;">
+          <label class="form-label">服务商</label>
+          <select class="form-select" id="provider" onchange="onProviderChange()">
+            <option value="claude">Claude（Anthropic）</option>
+            <option value="openai">OpenAI（GPT 系列）</option>
+            <option value="deepseek">DeepSeek（国内直连，很便宜）</option>
+            <option value="custom">自定义 / 中转 API</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom:10px;" id="modelGroup">
+          <label class="form-label">模型</label>
+          <select class="form-select" id="modelSelect">
+            <option value="claude-sonnet-4-5">claude-sonnet-4-5（推荐）</option>
+            <option value="claude-opus-4-5">claude-opus-4-5（最强）</option>
+            <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet（经济）</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom:10px; display:none;" id="baseUrlGroup">
+          <label class="form-label">Base URL</label>
+          <input class="form-input" id="baseUrl" placeholder="https://api.openai.com/v1" />
+          <span class="form-hint">中转 API 填入对方提供的地址</span>
+        </div>
+
+        <div class="api-key-input-wrap">
+          <input class="form-input" type="password" id="apiKey" placeholder="sk-ant-..." />
+          <button class="toggle-key-btn" id="toggleKey" title="显示/隐藏">👁</button>
+        </div>
+        <div class="form-hint" style="margin-top:6px;">Key 仅在本地浏览器使用，不会上传任何服务器</div>
+      </div>
+
+      <button class="btn btn-primary generate-btn" id="generateBtn">
+        ✨ AI 生成行程
+      </button>
+    </aside>
+
+    <!-- Right: Content Area -->
+    <main class="content-area" id="contentArea">
+      <!-- Empty State -->
+      <div class="empty-state" id="emptyState">
+        <div class="empty-state-icon">✈️</div>
+        <h2>在左侧输入目的地和时间，点击生成</h2>
+      </div>
+
+      <!-- Loading State -->
+      <div class="loading-state hidden" id="loadingState">
+        <div class="spinner"></div>
+        <div class="loading-text">AI 正在规划行程...</div>
+        <div class="loading-sub" id="loadingSubText">分析目的地特色与最佳游览方案</div>
+      </div>
+
+      <!-- Trip Content （初始隐藏） -->
+      <div style="display:none" id="tripContent">
+        <div class="trip-header" id="tripHeader">
+          <div class="trip-header-info">
+            <h1 id="tripTitle"></h1>
+            <div id="tripSummary" style="font-size:.9rem; opacity:.85; margin-top:4px;"></div>
+            <div class="trip-header-meta" id="tripMeta"></div>
+          </div>
+          <div class="trip-header-actions">
+            <button class="btn btn-white btn-sm" id="shareBtn">🔗 分享</button>
+            <button class="btn btn-white btn-sm" id="aiReplanBtn">🤖 重新规划</button>
+            <button class="btn btn-white btn-sm" id="addDayBtn">+ 添加一天</button>
+          </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="content-tabs">
+          <button class="tab-btn active" data-tab="itinerary">📅 行程列表</button>
+          <button class="tab-btn" data-tab="map">🗺️ 地图视图</button>
+        </div>
+
+        <!-- Tab: Itinerary -->
+        <div class="tab-panel active" id="tabItinerary">
+          <div class="days-container" id="daysContainer"></div>
+        </div>
+
+        <!-- Tab: Map -->
+        <div class="tab-panel" id="tabMap">
+          <div class="map-day-filter" id="mapDayFilter"></div>
+          <div class="map-legend">
+            <span style="font-weight:600;内容;">图例：</span>
+            <div class="map-legend-item"><div class="legend-dot" style="background:#4f6ef7"></div> 景点</div>
+            <div class="map-legend-item"><div class="legend-dot" style="background:#34c759"></div> 住宿</div>
+            <div class="map-legend-item"><div class="legend-dot" style="background:#ff7043"></div> 美食</div>
+            <div class="map-legend-item"><div class="legend-dot" style="background:#9b59b6"></div> 交通</div>
+            <span style="color:var(--text-muted);">· 展开某天详情后地图点自动显示</span>
+          </div>
+          <div id="mapContainer"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Modal: Edit Activity -->
+<div class="modal-overlay hidden" id="editActivityModal">
+  <div class="modal">
+    <div class="modal-title">✏️ 编辑活动</div>
+    <div class="modal-form">
+      <div class="form-group">
+        <label class="form-label">活动名称</label>
+        <input class="form-input" id="editName" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">类型</label>
+        <select class="form-select" id="editType">
+          <option value="attraction">🏛️ 景点</option>
+          <option value="food">🍽️ 美食</option>
+          <option value="transport">🚂 交通</option>
+          <option value="hotel">🏨 住宿</option>
+          <option value="activity">🎭 活动</option>
+          <option value="rest">☕ 休闲</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">简介</label>
+        <textarea class="form-textarea" id="editDesc"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">建议时间</label>
+        <input class="form-input" id="editTime" placeholder="如：上午 9:00 - 11:00，约2小时" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">备注</label>
+        <input class="form-input" id="editNote" placeholder="如：需提前购票，旺季排队较长" />
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('editActivityModal')">取消</button>
+      <button class="btn btn-danger btn-sm" id="deleteActivityBtn">删除</button>
+      <button class="btn btn-primary" id="saveActivityBtn">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Add Activity -->
+<div class="modal-overlay hidden" id="addActivityModal">
+  <div class="modal">
+    <div class="modal-title">➕ 添加活动</div>
+    <div class="modal-form">
+      <div class="form-group">
+        <label class="form-label">活动名称 <span style="color:#e53e3e">*</span></label>
+        <input class="form-input" id="addName" placeholder="如：参观乌菲兹美术馆" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">类型</label>
+        <select class="form-select" id="addType">
+          <option value="attraction">🏛️ 景点</option>
+          <option value="food">🍽️ 美食</option>
+          <option value="transport">🚂 交通</option>
+          <option value="hotel">🏨 住宿</option>
+          <option value="activity">🎭 活动</option>
+          <option value="rest">☕ 休闲</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">简介</label>
+        <textarea class="form-textarea" id="addDesc" placeholder="简短描述这个活动..."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">建议时间</label>
+        <input class="form-input" id="addTime" placeholder="如：下午 14:00 - 16:00" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">备注</label>
+        <input class="form-input" id="addNote" placeholder="可选" />
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('addActivityModal')">取消</button>
+      <button class="btn btn-primary" id="saveAddActivityBtn">添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Day Note -->
+<div class="modal-overlay hidden" id="dayNoteModal">
+  <div class="modal">
+    <div class="modal-title">📝 当天备注</div>
+    <div class="modal-form">
+      <div class="form-group">
+        <label class="form-label">备注内容</label>
+        <textarea class="form-textarea" id="dayNoteInput" placeholder="如：今天天气较热，注意防晒；提前查好巴士时刻表..." style="min-height:120px;"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('dayNoteModal')">取消</button>
+      <button class="btn btn-primary" id="saveDayNoteBtn">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Set Hotel -->
+<div class="modal-overlay hidden" id="setHotelModal">
+  <div class="modal">
+    <div class="modal-title">🏨 设置住宿</div>
+    <div class="modal-form">
+      <div class="form-group">
+        <label class="form-label">住宿名称</label>
+        <input class="form-input" id="hotelNameInput" placeholder="如：如家快捷酒店·西湖店 / 民宿青年旅社..." />
+      </div>
+      <div class="form-group">
+        <label class="form-label" style="font-size:.82rem;color:var(--text-muted);">设置后将在天卡片头部和地图上显示住宿标记</label>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('setHotelModal')">取消</button>
+      <button class="btn btn-danger btn-sm" id="clearHotelBtn" style="margin-right:auto;">清除住宿</button>
+      <button class="btn btn-primary" id="saveHotelBtn">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Attraction Guide -->
+<div class="modal-overlay hidden guide-modal" id="attractionGuideModal">
+  <div class="modal">
+    <div class="guide-modal-header">
+      <div class="guide-modal-name" id="guideModalName">🏛️ 景点名称</div>
+      <div class="guide-modal-subtitle" id="guideModalSubtitle">AI 攻略 · 实时生成</div>
+      <div class="guide-tabs">
+        <div class="guide-tab active" data-panel="overview" onclick="switchGuideTab('overview')">📋 概览</div>
+        <div class="guide-tab" data-panel="ticket" onclick="switchGuideTab('ticket')">🎫 门票与时间</div>
+        <div class="guide-tab" data-panel="tips" onclick="switchGuideTab('tips')">⚠️ 注意事项</div>
+        <div class="guide-tab" data-panel="food" onclick="switchGuideTab('food')">🍜 周边美食</div>
+      </div>
+    </div>
+    <div class="guide-modal-body" id="guideModalBody">
+      <div class="guide-ai-loading" id="guideLoadingEl">
+        <div class="guide-spinner"></div>
+        <span>AI 正在搜索攻略信息…</span>
+      </div>
+      <!-- overview panel -->
+      <div class="guide-panel" id="guide-panel-overview"></div>
+      <!-- ticket panel -->
+      <div class="guide-panel" id="guide-panel-ticket"></div>
+      <!-- tips panel -->
+      <div class="guide-panel" id="guide-panel-tips"></div>
+      <!-- food panel -->
+      <div class="guide-panel" id="guide-panel-food"></div>
+    </div>
+    <div class="guide-modal-footer">
+      <button class="btn btn-secondary guide-regenerate-btn" id="guideRegenerateBtn" onclick="regenerateGuide()">🔄 重新生成</button>
+      <button class="btn btn-primary" onclick="closeModal('attractionGuideModal')">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: AI Replan -->
+<div class="modal-overlay hidden replan-modal" id="replanModal">
+  <div class="modal">
+    <div class="modal-title">🤖 AI 重新规划</div>
+    <div class="modal-form">
+      <div class="form-group">
+        <label class="form-label">告诉 AI 你的调整需求</label>
+        <textarea class="form-textarea" id="replanInput" placeholder="例如：&#10;• 威尼斯只安排1天就够了&#10;• 加入多洛米蒂自然风光，安排2天&#10;• 米兰多加1天购物时间&#10;• 删除那不勒斯，改去阿马尔菲海岸" style="min-height:140px;"></textarea>
+      </div>
+      <div style="font-size:.8rem; color:var(--text-muted); background:var(--bg); padding:10px 12px; border-radius:var(--radius-sm);">
+        💡 AI 会保留你已经手动编辑的内容，仅对你指定的部分重新规划
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('replanModal')">取消</button>
+      <button class="btn btn-primary" id="confirmReplanBtn">🤖 开始重新规划</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Export -->
+<div class="modal-overlay hidden export-modal" id="exportModal">
+  <div class="modal">
+    <div class="modal-title">📋 导出行程</div>
+    <div class="export-text" id="exportText"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('exportModal')">关闭</button>
+      <button class="btn btn-primary" id="copyExportBtn">📋 复制文本</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// ===================================================
+// State
+// ===================================================
+let tripData = null; // { title, summary, destinations, startDate, endDate, days: [...] }
+let editingActivity = null; // { dayIndex, activityIndex }
+let editingDayNote = null; // dayIndex
+let sortableInstances = [];
+
+// ===================================================
+// Utils
+// ===================================================
+const $ = id => document.getElementById(id);
+
+function showToast(msg, type = 'info', duration = 3000) {
+  const container = $('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
+  toast.innerHTML = `<span>${icons[type] || '💬'}</span><span>${msg}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.animation = 'none';
+    toast.style.opacity = '0';
+    toast.style.transition = 'opacity .3s';
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+}
+
+function openModal(id) { $(id).classList.remove('hidden'); }
+function closeModal(id) { $(id).classList.add('hidden'); }
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
+}
+
+function calcDays(start, end) {
+  if (!start || !end) return 0;
+  const ms = new Date(end) - new Date(start);
+  return Math.round(ms / 86400000) + 1;
+}
+
+function getTypeEmoji(type) {
+  const map = {
+    attraction: '🏛️',
+    food: '🍽️',
+    transport: '🚂',
+    hotel: '🏨',
+    activity: '🎭',
+    rest: '☕',
+  };
+  return map[type] || '📍';
+}
+
+function getDayDate(startDate, dayIndex) {
+  if (!startDate) return `第 ${dayIndex + 1} 天`;
+  const d = new Date(startDate);
+  d.setDate(d.getDate() + dayIndex);
+  const weekdays = ['周日','周一','周二','周三','周四','周五','周六'];
+  return `${d.getMonth()+1}月${d.getDate()}日 ${weekdays[d.getDay()]}`;
+}
+
+// ===================================================
+// UI Toggles
+// ===================================================
+$('toggleKey').addEventListener('click', () => {
+  const input = $('apiKey');
+  input.type = input.type === 'password' ? 'text' : 'password';
+});
+
+// Set default dates
+const today = new Date();
+const nextMonth = new Date(today);
+nextMonth.setMonth(nextMonth.getMonth() + 1);
+$('startDate').value = nextMonth.toISOString().split('T')[0];
+const endDefault = new Date(nextMonth);
+endDefault.setDate(endDefault.getDate() + 9);
+$('endDate').value = endDefault.toISOString().split('T')[0];
+
+// ===================================================
+// Provider Switch
+// ===================================================
+const MODEL_OPTIONS = {
+  claude: [
+    { value: 'claude-sonnet-4-5',          label: 'claude-sonnet-4-5（推荐）' },
+    { value: 'claude-opus-4-5',            label: 'claude-opus-4-5（最强）' },
+    { value: 'claude-3-5-sonnet-20241022', label: 'claude-3-5-sonnet（经济）' },
+  ],
+  openai: [
+    { value: 'gpt-4o',          label: 'gpt-4o' },
+    { value: 'gpt-4.1',         label: 'gpt-4.1' },
+    { value: 'gpt-4.5-preview', label: 'gpt-4.5-preview' },
+    { value: 'o3',              label: 'o3' },
+    { value: 'o4-mini',         label: 'o4-mini' },
+  ],
+  deepseek: [
+    { value: 'deepseek-chat',     label: 'deepseek-chat（V3，推荐）' },
+    { value: 'deepseek-reasoner', label: 'deepseek-reasoner（R1，推理强）' },
+  ],
+  custom: [
+    { value: 'deepseek-chat',     label: 'deepseek-chat' },
+    { value: 'gpt-4o',            label: 'gpt-4o' },
+    { value: 'gpt-4.1',           label: 'gpt-4.1' },
+    { value: 'claude-sonnet-4-5', label: 'claude-sonnet-4-5' },
+    { value: 'custom',            label: '手动输入模型名' },
+  ],
+};
+
+function onProviderChange() {
+  const provider = $('provider').value;
+  const modelSelect = $('modelSelect');
+  const baseUrlGroup = $('baseUrlGroup');
+  const apiKey = $('apiKey');
+
+  // Update model options
+  const opts = MODEL_OPTIONS[provider] || [];
+  modelSelect.innerHTML = opts.map(o => `<option value="${o.value}">${o.label}</option>`).join('');
+
+  // Show/hide base URL
+  baseUrlGroup.style.display = (provider === 'custom' || provider === 'deepseek') ? '' : 'none';
+
+  // Update placeholder & base URL
+  if (provider === 'claude') {
+    apiKey.placeholder = 'sk-ant-...';
+    $('baseUrl').value = '';
+  } else if (provider === 'openai') {
+    apiKey.placeholder = 'sk-...';
+    $('baseUrl').value = '';
+  } else if (provider === 'deepseek') {
+    apiKey.placeholder = 'sk-...';
+    $('baseUrl').value = 'https://api.deepseek.com/v1';
+  } else {
+    apiKey.placeholder = 'API Key';
+    $('baseUrl').placeholder = 'https://你的中转地址/v1';
+    $('baseUrl').value = '';
+  }
+}
+
+// ===================================================
+// AI API Call (unified)
+// ===================================================
+async function callAI(systemPrompt, userPrompt) {
+  const apiKey = $('apiKey').value.trim();
+  const provider = $('provider').value;
+  let model = $('modelSelect').value;
+
+  // If custom model manually typed
+  if (model === 'custom') {
+    model = prompt('请输入模型名称（如 gpt-4o）:') || 'gpt-4o';
+  }
+
+  if (provider === 'claude') {
+    // Anthropic native API
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-calls': 'true',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 8192,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error?.message || `Claude API 错误: ${response.status}`);
+    }
+    const data = await response.json();
+    return data.content[0].text;
+
+  } else {
+    // OpenAI-compatible API (openai / deepseek / custom)
+    let baseUrl = 'https://api.openai.com/v1';
+    if (provider === 'deepseek') {
+      baseUrl = 'https://api.deepseek.com/v1';
+    } else if (provider === 'custom') {
+      baseUrl = ($('baseUrl').value.trim() || 'https://api.openai.com/v1').replace(/\/$/, '');
+    }
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 8192,
+        // response_format: json_object 强制模型只输出合法 JSON（DeepSeek / OpenAI 均支持）
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error?.message || `OpenAI API 错误: ${response.status}`);
+    }
+    const data = await response.json();
+    return data.choices[0].message.content;
+  }
+}
+
+function repairJSON(str) {
+  // 1. 修复字符串值中未转义的换行符（JSON 字符串内不允许裸换行）
+  // 在 JSON 字符串值内部，把裸换行替换成 \n
+  str = str.replace(/"((?:[^"\\]|\\.)*)"/g, (match) => {
+    return match.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
+  });
+
+  // 2. 修复 trailing comma（末尾多余的逗号）：,} 或 ,]
+  str = str.replace(/,\s*([}\]])/g, '$1');
+
+  // 3. 修复没有引号的 key（简单情况）
+  str = str.replace(/([{,]\s*)(\w+)\s*:/g, (m, pre, key) => {
+    // 如果 key 已经被引号包裹则跳过（不会被本正则匹配到）
+    return `${pre}"${key}":`;
+  });
+
+  return str;
+}
+
+function extractJSON(text) {
+  // 调试：打印原始内容
+  console.log('AI 原始返回内容：', text);
+
+  // 辅助：尝试解析，失败时尝试修复后再解析
+  function tryParse(s) {
+    try {
+      return JSON.parse(s);
+    } catch(e) {
+      try {
+        return JSON.parse(repairJSON(s));
+      } catch(e2) {
+        return null;
+      }
+    }
+  }
+
+  // 1. 优先提取 ```json ... ``` 或 ``` ... ``` 代码块
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (fenceMatch) {
+    const r = tryParse(fenceMatch[1]);
+    if (r) return r;
+  }
+
+  // 2. 找最外层 { ... }，用括号深度追踪
+  const start = text.indexOf('{');
+  if (start !== -1) {
+    let depth = 0;
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i];
+      // 跳过字符串内部（避免把字符串里的括号计入深度）
+      if (ch === '"') {
+        i++;
+        while (i < text.length && !(text[i] === '"' && text[i-1] !== '\\')) i++;
+        continue;
+      }
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          const r = tryParse(text.slice(start, i + 1));
+          if (r) return r;
+          break;
+        }
+      }
+    }
+    // 兜底：截到最后一个 }
+    const end = text.lastIndexOf('}');
+    if (end > start) {
+      const r = tryParse(text.slice(start, end + 1));
+      if (r) return r;
+    }
+  }
+
+  // 3. 全部失败
+  console.error('所有解析策略均失败，原始内容已打印在上方');
+  throw new Error('无法解析 AI 返回的内容，请按 F12 查看控制台中的原始输出，并反馈给开发者');
+}
+
+// ===================================================
+// Generate Trip
+// ===================================================
+// 第一阶段：只生成骨架（景点名+类型+时间），不含详细介绍
+const SYSTEM_PROMPT_SKELETON = `你是专业旅行规划师，擅长设计合理实用的行程。
+
+【重要】只输出合法JSON，直接以{开头，以}结尾，不要有任何其他文字。
+
+输出格式：
+{
+  "title": "行程标题",
+  "summary": "一句话摘要",
+  "days": [
+    {
+      "location": "城市名",
+      "theme": "当天主题（10字以内）",
+      "activities": [
+        {
+          "name": "景点/活动名称",
+          "type": "attraction|food|transport|hotel|activity|rest",
+          "time": "如 上午9:00-11:00"
+        }
+      ]
+    }
+  ]
+}
+
+规则：
+- 每天4-6个活动，含午餐food、晚餐food、住宿hotel
+- type严格是6种之一：attraction food transport hotel activity rest
+- 所有值不能为null
+- 只输出JSON，不要description和note字段，保持输出极简`;
+
+// 第二阶段：为单天生成详细介绍
+const SYSTEM_PROMPT_DETAIL = `你是专业旅行规划师，为用户补充景点详情。
+
+【重要】只输出合法JSON，直接以{开头，以}结尾。
+
+输出格式：
+{
+  "activities": [
+    {
+      "name": "原景点名称（保持不变）",
+      "type": "原type（保持不变）",
+      "time": "原时间（保持不变）",
+      "description": "2-3句详细介绍，包含亮点、历史背景或实用信息",
+      "note": "实用贴士，如购票方式、注意事项、推荐菜品等（可为空字符串）"
+    }
+  ]
+}
+
+规则：
+- 保持原有的name/type/time不变
+- description要有实质内容，2-3句话，生动有信息量
+- note填写真正有用的小贴士，没有则填""
+- 只输出JSON`;
+
+// 兼容旧代码
+const SYSTEM_PROMPT = SYSTEM_PROMPT_SKELETON;
+
+async function generateTrip() {
+  const destinations = $('destinations').value.trim();
+  const departure = $('departure').value.trim();
+  const startDate = $('startDate').value;
+  const endDate = $('endDate').value;
+  const style = $('style').value;
+  const groupSize = $('groupSize').value;
+  const requirements = $('requirements').value.trim();
+  const apiKey = $('apiKey').value.trim();
+
+  if (!destinations) { showToast('请填写目的地', 'warning'); return; }
+  if (!apiKey) { showToast('请填写 API Key', 'warning'); return; }
+
+  const days = calcDays(startDate, endDate);
+  const styleMap = {
+    balanced: '均衡（文化+美食+休闲）',
+    cultural: '文化深度游',
+    food: '美食探索',
+    nature: '自然风光',
+    relaxed: '轻松休闲',
+    adventure: '户外冒险',
+  };
+  const groupMap = {
+    solo: '独行',
+    couple: '2人出行',
+    family: '家庭出行（含小孩）',
+    group: '多人团体',
+  };
+
+  const userPrompt = `请为我规划以下旅行行程（只需生成景点名称和时间，不需要详细介绍）：
+
+目的地：${destinations}
+出发城市：${departure || '未指定'}
+旅行时间：${startDate ? formatDate(startDate) : '未指定'} 至 ${endDate ? formatDate(endDate) : '未指定'}（共 ${days || '待定'} 天）
+旅行风格：${styleMap[style]}
+出行人数：${groupMap[groupSize]}
+${requirements ? `特殊要求：${requirements}` : ''}
+
+请根据各目的地实际情况合理分配天数，给出骨架行程（只要景点名+时间，不要描述）。`;
+
+  // UI switch
+  $('emptyState').classList.add('hidden');
+  $('tripContent').style.display = 'none';
+  $('loadingState').classList.remove('hidden');
+  $('generateBtn').disabled = true;
+
+  const loadingMsgs = [
+    '分析目的地特色与最佳游览方案...',
+    '规划各城市间的交通路线...',
+    '筛选每个城市的必去景点...',
+    '安排餐厅和美食推荐...',
+    '优化每天的活动密度...',
+  ];
+  let msgIdx = 0;
+  const msgInterval = setInterval(() => {
+    $('loadingSubText').textContent = loadingMsgs[msgIdx % loadingMsgs.length];
+    msgIdx++;
+  }, 2000);
+
+  try {
+    const raw = await callAI(SYSTEM_PROMPT_SKELETON, userPrompt);
+    const parsed = extractJSON(raw);
+
+    // 初始化 detailLoaded 标记
+    if (parsed.days) {
+      parsed.days.forEach(day => { day._detailLoaded = false; });
+    }
+
+    tripData = {
+      ...parsed,
+      destinations,
+      startDate,
+      endDate,
+    };
+
+    renderTrip();
+    // 生成后滚动到顶部
+    $('contentArea').scrollTo({ top: 0, behavior: 'smooth' });
+    showToast('骨架行程已生成，点击展开每天可加载详情 ✨', 'success', 4000);
+  } catch (e) {
+    showToast(`生成失败: ${e.message}`, 'error', 5000);
+    $('emptyState').classList.remove('hidden');
+    $('loadingState').classList.add('hidden');
+    console.error(e);
+  } finally {
+    clearInterval(msgInterval);
+    $('loadingState').classList.add('hidden');
+    $('generateBtn').disabled = false;
+  }
+}
+
+$('generateBtn').addEventListener('click', generateTrip);
+
+// ===================================================
+// Render Trip
+// ===================================================
+function renderTrip() {
+  if (!tripData) return;
+
+  // Header
+  $('tripTitle').textContent = tripData.title || '我的旅行';
+  $('tripSummary').textContent = tripData.summary || '';
+
+  const meta = $('tripMeta');
+  meta.innerHTML = '';
+  const tags = [];
+  if (tripData.startDate && tripData.endDate) {
+    tags.push(`📅 ${formatDate(tripData.startDate)} - ${formatDate(tripData.endDate)}`);
+    tags.push(`⏱️ ${calcDays(tripData.startDate, tripData.endDate)} 天`);
+  }
+  if (tripData.days) tags.push(`🗺️ ${tripData.days.length} 天行程`);
+  tags.forEach(t => {
+    const span = document.createElement('span');
+    span.className = 'trip-meta-tag';
+    span.textContent = t;
+    meta.appendChild(span);
+  });
+
+  // Days
+  renderDays();
+
+  // Show content
+  $('loadingState').classList.add('hidden');
+  $('emptyState').classList.add('hidden');
+  $('tripContent').style.display = 'block';
+  $('exportBtn').style.display = '';
+  $('printBtn').style.display = '';
+
+  // 重建地图天筛选器
+  if (typeof buildMapDayFilter === 'function') buildMapDayFilter();
+}
+
+function renderDays() {
+  const container = $('daysContainer');
+  sortableInstances.forEach(s => s.destroy());
+  sortableInstances = [];
+  container.innerHTML = '';
+
+  if (!tripData?.days) return;
+
+  tripData.days.forEach((day, dayIndex) => {
+    const card = createDayCard(day, dayIndex);
+    container.appendChild(card);
+    initDaySortable(card, dayIndex);
+  });
+}
+
+function initDaySortable(card, dayIndex) {
+  const list = card.querySelector('.activities-list');
+  if (!list) return;
+  const sortable = Sortable.create(list, {
+    animation: 150,
+    handle: '.drag-handle',
+    ghostClass: 'sortable-ghost',
+    chosenClass: 'sortable-chosen',
+    onEnd: (evt) => {
+      const activities = tripData.days[dayIndex].activities;
+      const [moved] = activities.splice(evt.oldIndex, 1);
+      activities.splice(evt.newIndex, 0, moved);
+      showToast('顺序已调整', 'success', 1500);
+    },
+  });
+  sortableInstances.push(sortable);
+}
+
+function createDayCard(day, dayIndex) {
+  const card = document.createElement('div');
+  // 默认折叠，点击展开时才加载详情
+  card.className = 'day-card collapsed';
+  card.dataset.dayIndex = dayIndex;
+
+  const dateStr = getDayDate(tripData.startDate, dayIndex);
+  const actCount = (day.activities || []).length;
+  const detailLoaded = day._detailLoaded;
+
+  // 活动预览（只显示名称，不显示详情）
+  const activityPreviews = (day.activities || []).map(a =>
+    `<span style="font-size:.78rem; color:var(--text-secondary); background:var(--bg);
+      padding:2px 7px; border-radius:100px; border:1px solid var(--border);">
+      ${getTypeEmoji(a.type)} ${a.name}
+    </span>`
+  ).join('');
+
+  const hotelName = day.hotel || '';
+  const hotelBadge = hotelName
+    ? `<span style="font-size:.75rem;color:#34c759;background:rgba(52,199,89,.1);padding:2px 7px;border-radius:100px;border:1px solid rgba(52,199,89,.3);">🏨 ${hotelName}</span>`
+    : `<span style="font-size:.75rem;color:var(--text-muted);cursor:pointer;" onclick="event.stopPropagation();openSetHotel(${dayIndex})">+ 设置住宿</span>`;
+
+  card.innerHTML = `
+    <div class="day-header" onclick="toggleDayCard(${dayIndex})">
+      <div class="day-number">${dayIndex + 1}</div>
+      <div class="day-info">
+        <div class="day-title">${day.location || ''} · ${day.theme || ''}</div>
+        <div class="day-subtitle" style="display:flex;align-items:center;gap:8px;">
+          <span>${dateStr} · ${actCount} 个活动</span>
+          ${hotelBadge}
+        </div>
+        <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px;">${activityPreviews}</div>
+      </div>
+      <div class="day-actions" onclick="event.stopPropagation()">
+        <button class="btn btn-ghost btn-icon btn-sm" title="设置住宿" onclick="openSetHotel(${dayIndex})">🏨</button>
+        <button class="btn btn-ghost btn-icon btn-sm" title="AI 优化这一天" onclick="aiOptimizeDay(${dayIndex})">🤖</button>
+        <button class="btn btn-ghost btn-icon btn-sm" title="删除这一天" onclick="deleteDay(${dayIndex})">🗑️</button>
+      </div>
+      <span class="day-collapse-icon">▾</span>
+    </div>
+    <div class="day-body">
+      <div id="detailArea_${dayIndex}">
+        ${detailLoaded
+          ? renderActivitiesHTML(day.activities, dayIndex)
+          : `<button class="load-detail-btn" id="loadDetailBtn_${dayIndex}" onclick="loadDayDetail(${dayIndex})">
+              ✨ 点击加载今日详情（含地图坐标和交通）
+             </button>
+             <div class="activities-list" id="activitiesList_${dayIndex}">
+               ${(day.activities || []).map((act, i) => createActivityHTML(act, dayIndex, i)).join('')}
+             </div>`
+        }
+      </div>
+      <button class="add-activity-btn" onclick="openAddActivity(${dayIndex})">
+        + 添加活动
+      </button>
+      <div class="day-footer">
+        <div class="day-note-display" id="dayNote_${dayIndex}" onclick="openDayNote(${dayIndex})" title="点击编辑备注">
+          ${day.note || ''}
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="openDayNote(${dayIndex})">📝 备注</button>
+      </div>
+    </div>
+  `;
+
+  return card;
+}
+
+function renderActivitiesHTML(activities, dayIndex) {
+  return `<div class="activities-list" id="activitiesList_${dayIndex}">
+    ${(activities || []).map((act, i) => createActivityHTML(act, dayIndex, i)).join('')}
+  </div>`;
+}
+
+function createActivityHTML(act, dayIndex, actIndex) {
+  const activities = tripData?.days?.[dayIndex]?.activities || [];
+  const isLast = actIndex === activities.length - 1;
+  return `
+    <div class="activity-item type-${act.type || 'attraction'}" data-day="${dayIndex}" data-idx="${actIndex}">
+      <span class="drag-handle">⠿</span>
+      <div class="activity-icon">${getTypeEmoji(act.type)}</div>
+      <div class="activity-content">
+        <div class="activity-name">${act.name}</div>
+        ${act.description ? `<div class="activity-desc">${act.description}</div>` : ''}
+        ${act.time ? `<div class="activity-time">🕐 ${act.time}</div>` : ''}
+        ${act.note ? `<div class="activity-note">💡 ${act.note}</div>` : ''}
+        ${act.transport_to_next && !isLast ? `<div style="font-size:.75rem;color:#9b59b6;margin-top:4px;padding:3px 0;border-top:1px dashed #e8e0f0;">🚋 ${act.transport_to_next}</div>` : ''}
+      </div>
+      <div class="activity-actions">
+        <button class="btn btn-ghost btn-icon btn-sm" title="景点攻略" onclick="openAttractionGuide(${dayIndex}, ${actIndex})">🔍</button>
+        <button class="btn btn-ghost btn-icon btn-sm" title="编辑" onclick="openEditActivity(${dayIndex}, ${actIndex})">✏️</button>
+      </div>
+    </div>
+  `;
+}
+
+// ===================================================
+// Day Actions
+// ===================================================
+function toggleDayCard(dayIndex) {
+  const card = document.querySelector(`.day-card[data-day-index="${dayIndex}"]`);
+  if (!card) return;
+  const wasCollapsed = card.classList.contains('collapsed');
+  card.classList.toggle('collapsed');
+  // 展开时，如果详情未加载则自动触发加载
+  if (wasCollapsed && !tripData.days[dayIndex]._detailLoaded) {
+    loadDayDetail(dayIndex);
+  }
+}
+
+// ===================================================
+// Lazy Load Day Detail (with coords + transport)
+// ===================================================
+const SYSTEM_PROMPT_DETAIL_FULL = `你是专业旅行规划师，为用户补充景点详情、地理坐标和交通方式。
+
+【重要】只输出合法JSON，直接以{开头，以}结尾。
+
+输出格式：
+{
+  "activities": [
+    {
+      "name": "原景点名称（保持不变）",
+      "type": "原type（保持不变）",
+      "time": "原时间（保持不变）",
+      "description": "2-3句详细介绍，包含亮点、历史背景或实用信息",
+      "note": "实用贴士（可为空字符串）",
+      "lat": 纬度数字（如 41.9028），不知道填0,
+      "lng": 经度数字（如 12.4964），不知道填0,
+      "transport_to_next": "到下一个地点的交通方式，如 步行约10分钟 / 乘地铁2号线约15分钟 / 打车约20元（可为空字符串）"
+    }
+  ]
+}
+
+规则：
+- 保持原有的name/type/time不变
+- description要有实质内容，2-3句话
+- lat/lng填写景点的真实经纬度，type为hotel/transport时可填0
+- transport_to_next描述去下一个地点的方式，最后一个活动填""
+- 只输出JSON`;
+
+async function loadDayDetail(dayIndex) {
+  const day = tripData.days[dayIndex];
+  if (day._detailLoaded || day._detailLoading) return;
+
+  const apiKey = $('apiKey').value.trim();
+  if (!apiKey) { showToast('请填写 API Key', 'warning'); return; }
+
+  day._detailLoading = true;
+
+  const detailArea = $(`detailArea_${dayIndex}`);
+  const loadBtn = $(`loadDetailBtn_${dayIndex}`);
+  if (loadBtn) loadBtn.disabled = true;
+  if (detailArea) {
+    const loadingEl = document.createElement('div');
+    loadingEl.className = 'day-detail-loading';
+    loadingEl.id = `detailLoading_${dayIndex}`;
+    loadingEl.innerHTML = `<div class="mini-spinner"></div> AI 正在生成详情（含地图坐标和交通）...`;
+    if (loadBtn) loadBtn.insertAdjacentElement('afterend', loadingEl);
+    else detailArea.prepend(loadingEl);
+  }
+
+  try {
+    const activityNames = (day.activities || []).map(a =>
+      `${a.name}（${a.type}，${a.time || ''}）`
+    ).join('\n');
+
+    const userPrompt = `请为以下行程的第${dayIndex + 1}天补充详情、地理坐标和交通方式：
+
+城市：${day.location}
+主题：${day.theme}
+活动列表：
+${activityNames}
+
+请为每个活动补充description、note、lat/lng坐标、transport_to_next。`;
+
+    const raw = await callAI(SYSTEM_PROMPT_DETAIL_FULL, userPrompt);
+    const parsed = extractJSON(raw);
+
+    if (parsed.activities && parsed.activities.length > 0) {
+      parsed.activities.forEach((detailAct, i) => {
+        if (day.activities[i]) {
+          day.activities[i].description = detailAct.description || '';
+          day.activities[i].note = detailAct.note || '';
+          if (detailAct.lat && detailAct.lat !== 0) day.activities[i].lat = detailAct.lat;
+          if (detailAct.lng && detailAct.lng !== 0) day.activities[i].lng = detailAct.lng;
+          day.activities[i].transport_to_next = detailAct.transport_to_next || '';
+        }
+      });
+    }
+
+    day._detailLoaded = true;
+    day._detailLoading = false;
+
+    // 重新渲染该天的活动区域
+    if (detailArea) {
+      detailArea.innerHTML = renderActivitiesHTML(day.activities, dayIndex);
+      const card = document.querySelector(`.day-card[data-day-index="${dayIndex}"]`);
+      if (card) initDaySortable(card, dayIndex);
+    }
+
+    // 刷新地图过滤按钮，如果当前在地图 tab 则刷新地图
+    buildMapDayFilter();
+    if ($('tabMap') && $('tabMap').classList.contains('active')) refreshMap();
+
+    showToast(`第 ${dayIndex + 1} 天详情已加载，可查看地图 🗺️`, 'success', 2500);
+
+  } catch(e) {
+    day._detailLoading = false;
+    const loadingEl = $(`detailLoading_${dayIndex}`);
+    if (loadingEl) loadingEl.remove();
+    if (loadBtn) {
+      loadBtn.disabled = false;
+      loadBtn.textContent = '❌ 加载失败，点击重试';
+    }
+    showToast(`详情加载失败: ${e.message}`, 'error', 4000);
+    console.error(e);
+  }
+}
+
+function deleteDay(dayIndex) {
+  if (!confirm(`确定删除第 ${dayIndex + 1} 天的行程吗？`)) return;
+  tripData.days.splice(dayIndex, 1);
+  renderDays();
+  showToast('已删除该天行程', 'success');
+}
+
+$('addDayBtn').addEventListener('click', () => {
+  if (!tripData) return;
+  const lastDay = tripData.days[tripData.days.length - 1];
+  tripData.days.push({
+    location: lastDay?.location || '待定',
+    theme: '自由行程',
+    activities: [
+      { name: '自由活动', type: 'rest', description: '自由探索当地', time: '全天', note: '' }
+    ],
+    note: '',
+  });
+  renderDays();
+  showToast('已添加新的一天', 'success');
+  // Scroll to bottom
+  setTimeout(() => {
+    $('daysContainer').lastElementChild?.scrollIntoView({ behavior: 'smooth' });
+  }, 100);
+});
+
+// ===================================================
+// Attraction Guide (AI 攻略)
+// ===================================================
+let _guideCurrentContext = null; // { dayIndex, actIndex, actName }
+
+const SYSTEM_PROMPT_GUIDE = `你是专业旅游攻略作者，根据用户提供的景点名称和城市，生成详细实用的景点攻略。
+
+【重要】只输出合法JSON，直接以{开头，以}结尾，不要有任何其他文字。
+
+输出格式：
+{
+  "overview": {
+    "description": "景点综合介绍，3-4句，包含特色亮点和必游理由",
+    "highlight": "最值得关注的一个亮点，20字以内",
+    "best_time": "最佳游览时间，如：春秋季、清晨或傍晚时分等",
+    "duration": "建议游览时长，如：1-2小时 / 半天",
+    "crowd_level": "旺季人流情况，如：节假日非常拥挤，建议工作日前往"
+  },
+  "ticket": {
+    "price": "门票价格，如：免费 / 成人80元，学生40元 / 通票120元",
+    "booking": "购票方式，如：现场购票 / 官方App提前预约 / 微信小程序购票",
+    "opening_hours": "开放时间，如：全年 8:00-17:30（旺季延长至18:30）",
+    "closed_days": "闭馆日，如：每周一闭馆（节假日除外）/ 全年开放",
+    "special_notes": "其他票务提示，如：免票政策（学生/老人/军人）等"
+  },
+  "tips": [
+    "具体注意事项1，如：园内禁止携带外来食物",
+    "具体注意事项2，如：建议穿舒适步行鞋，全程约4公里步行",
+    "具体注意事项3，如：部分区域需要提前预约，名额有限",
+    "具体注意事项4，如：旺季排队安检约30-60分钟，建议提前到达"
+  ],
+  "nearby_food": [
+    {
+      "name": "餐厅/美食名称",
+      "type": "美食类型，如：本地特色小吃 / 人均80元的餐厅",
+      "tags": ["特色1", "特色2"],
+      "distance": "距景点约xxx米/分钟步行",
+      "description": "推荐理由，1-2句",
+      "price_range": "人均消费，如：人均30-50元"
+    }
+  ],
+  "source_note": "以上信息基于AI知识库生成，具体以景区官方公告为准"
+}
+
+规则：
+- nearby_food 至少提供3家，最多5家推荐
+- tips 至少4条实用注意事项
+- 所有价格/时间信息如不确定，请标注"以官方最新公告为准"
+- 只输出JSON，不要 \`\`\`json 包裹`;
+
+async function openAttractionGuide(dayIndex, actIndex) {
+  const act = tripData?.days?.[dayIndex]?.activities?.[actIndex];
+  if (!act) return;
+
+  // 保存上下文（用于重新生成）
+  _guideCurrentContext = { dayIndex, actIndex };
+
+  // 设置弹窗标题
+  const emoji = getTypeEmoji(act.type);
+  $('guideModalName').textContent = emoji + ' ' + act.name;
+
+  const dest = tripData.destination || '';
+  $('guideModalSubtitle').textContent = `${dest ? dest + ' · ' : ''}AI 攻略 · 实时生成`;
+
+  // 重置状态：隐藏所有 panel，显示 loading
+  ['overview','ticket','tips','food'].forEach(p => {
+    const el = $(`guide-panel-${p}`);
+    el.classList.remove('active');
+    el.innerHTML = '';
+  });
+  $('guideLoadingEl').style.display = 'flex';
+
+  // 切换到 overview tab
+  switchGuideTab('overview', false);
+
+  openModal('attractionGuideModal');
+
+  // 调用 AI
+  try {
+    const userPrompt = `景点：${act.name}\n城市/目的地：${dest || '未知'}\n类型：${act.type || 'attraction'}\n${act.description ? '已知简介：' + act.description : ''}\n\n请生成这个景点的完整攻略信息。`;
+    const raw = await callAI(SYSTEM_PROMPT_GUIDE, userPrompt);
+    const data = repairJSON(raw);
+    renderGuideData(data);
+  } catch (e) {
+    $('guideLoadingEl').style.display = 'none';
+    const errHtml = `<div class="guide-ai-error">❌ 生成失败：${e.message}<br><br><small>请检查 API 配置后重试</small></div>`;
+    $('guide-panel-overview').innerHTML = errHtml;
+    $('guide-panel-overview').classList.add('active');
+  }
+}
+
+async function regenerateGuide() {
+  if (!_guideCurrentContext) return;
+  const { dayIndex, actIndex } = _guideCurrentContext;
+  openAttractionGuide(dayIndex, actIndex);
+}
+
+function switchGuideTab(panel, updateContent = true) {
+  // 更新 tab 样式
+  document.querySelectorAll('.guide-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.panel === panel);
+  });
+  // 如果内容已渲染，切换 panel
+  if (updateContent) {
+    document.querySelectorAll('.guide-panel').forEach(p => p.classList.remove('active'));
+    const target = $(`guide-panel-${panel}`);
+    if (target && target.innerHTML.trim()) {
+      target.classList.add('active');
+    }
+  }
+}
+
+function renderGuideData(data) {
+  $('guideLoadingEl').style.display = 'none';
+
+  // --- Overview panel ---
+  const ov = data.overview || {};
+  $('guide-panel-overview').innerHTML = `
+    <div class="guide-section">
+      <p style="font-size:.92rem;line-height:1.7;color:var(--text);margin:0 0 14px;">${ov.description || '暂无简介'}</p>
+      ${ov.highlight ? `<div style="background:linear-gradient(135deg,rgba(102,126,234,.1),rgba(118,75,162,.08));border-left:3px solid var(--primary);padding:10px 14px;border-radius:0 8px 8px 0;font-size:.88rem;color:var(--primary);font-weight:600;margin-bottom:14px;">✨ ${ov.highlight}</div>` : ''}
+    </div>
+    <div class="guide-section">
+      <div class="guide-section-title">🕐 游览信息</div>
+      ${ov.best_time ? `<div class="guide-info-row"><span class="guide-info-label">最佳时间</span><span class="guide-info-value">${ov.best_time}</span></div>` : ''}
+      ${ov.duration ? `<div class="guide-info-row"><span class="guide-info-label">建议时长</span><span class="guide-info-value">${ov.duration}</span></div>` : ''}
+      ${ov.crowd_level ? `<div class="guide-info-row"><span class="guide-info-label">人流情况</span><span class="guide-info-value">${ov.crowd_level}</span></div>` : ''}
+    </div>
+  `;
+  $('guide-panel-overview').classList.add('active');
+
+  // --- Ticket panel ---
+  const tk = data.ticket || {};
+  $('guide-panel-ticket').innerHTML = `
+    <div class="guide-section">
+      <div class="guide-section-title">🎫 门票信息</div>
+      ${tk.price ? `<div class="guide-info-row"><span class="guide-info-label">票价</span><span class="guide-info-value" style="font-weight:600;color:#e67e22;">${tk.price}</span></div>` : ''}
+      ${tk.booking ? `<div class="guide-info-row"><span class="guide-info-label">购票方式</span><span class="guide-info-value">${tk.booking}</span></div>` : ''}
+      ${tk.opening_hours ? `<div class="guide-info-row"><span class="guide-info-label">开放时间</span><span class="guide-info-value">${tk.opening_hours}</span></div>` : ''}
+      ${tk.closed_days ? `<div class="guide-info-row"><span class="guide-info-label">闭馆日</span><span class="guide-info-value">${tk.closed_days}</span></div>` : ''}
+      ${tk.special_notes ? `<div class="guide-info-row"><span class="guide-info-label">特别说明</span><span class="guide-info-value">${tk.special_notes}</span></div>` : ''}
+    </div>
+    ${data.source_note ? `<p style="font-size:.75rem;color:var(--text-muted);margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">ℹ️ ${data.source_note}</p>` : ''}
+  `;
+
+  // --- Tips panel ---
+  const tips = Array.isArray(data.tips) ? data.tips : [];
+  $('guide-panel-tips').innerHTML = `
+    <div class="guide-section">
+      <div class="guide-section-title">⚠️ 游览注意事项</div>
+      <ul class="guide-tips-list">
+        ${tips.length ? tips.map(t => `<li>${t}</li>`).join('') : '<li>暂无注意事项</li>'}
+      </ul>
+    </div>
+  `;
+
+  // --- Food panel ---
+  const foods = Array.isArray(data.nearby_food) ? data.nearby_food : [];
+  $('guide-panel-food').innerHTML = `
+    <div class="guide-section">
+      <div class="guide-section-title">🍜 周边美食推荐</div>
+      ${foods.length ? foods.map(f => `
+        <div class="guide-food-card">
+          <div class="guide-food-name">
+            🍽️ ${f.name}
+            ${f.price_range ? `<span style="font-size:.75rem;color:#e67e22;font-weight:400;margin-left:auto;">${f.price_range}</span>` : ''}
+          </div>
+          <div class="guide-food-tags">
+            ${f.type ? `<span class="guide-food-tag">${f.type}</span>` : ''}
+            ${(f.tags || []).map(tag => `<span class="guide-food-tag">${tag}</span>`).join('')}
+            ${f.distance ? `<span class="guide-food-tag" style="background:rgba(52,199,89,.08);color:#2ecc71;border-color:rgba(52,199,89,.25);">📍 ${f.distance}</span>` : ''}
+          </div>
+          ${f.description ? `<div class="guide-food-desc">${f.description}</div>` : ''}
+        </div>
+      `).join('') : '<p style="color:var(--text-muted);font-size:.88rem;">暂无周边美食信息</p>'}
+    </div>
+  `;
+}
+
+// ===================================================
+// Activity Actions
+// ===================================================
+function openEditActivity(dayIndex, actIndex) {
+  const act = tripData.days[dayIndex].activities[actIndex];
+  editingActivity = { dayIndex, actIndex };
+
+  $('editName').value = act.name || '';
+  $('editType').value = act.type || 'attraction';
+  $('editDesc').value = act.description || '';
+  $('editTime').value = act.time || '';
+  $('editNote').value = act.note || '';
+
+  openModal('editActivityModal');
+}
+
+$('saveActivityBtn').addEventListener('click', () => {
+  if (!editingActivity) return;
+  const { dayIndex, actIndex } = editingActivity;
+  const act = tripData.days[dayIndex].activities[actIndex];
+
+  act.name = $('editName').value.trim();
+  act.type = $('editType').value;
+  act.description = $('editDesc').value.trim();
+  act.time = $('editTime').value.trim();
+  act.note = $('editNote').value.trim();
+
+  closeModal('editActivityModal');
+  renderDays();
+  showToast('活动已更新', 'success');
+  editingActivity = null;
+});
+
+$('deleteActivityBtn').addEventListener('click', () => {
+  if (!editingActivity) return;
+  const { dayIndex, actIndex } = editingActivity;
+  if (!confirm('确定删除这个活动吗？')) return;
+  tripData.days[dayIndex].activities.splice(actIndex, 1);
+  closeModal('editActivityModal');
+  renderDays();
+  showToast('活动已删除', 'success');
+  editingActivity = null;
+});
+
+function openAddActivity(dayIndex) {
+  editingActivity = { dayIndex, actIndex: -1 };
+  $('addName').value = '';
+  $('addType').value = 'attraction';
+  $('addDesc').value = '';
+  $('addTime').value = '';
+  $('addNote').value = '';
+  openModal('addActivityModal');
+}
+
+$('saveAddActivityBtn').addEventListener('click', () => {
+  const name = $('addName').value.trim();
+  if (!name) { showToast('请填写活动名称', 'warning'); return; }
+
+  const { dayIndex } = editingActivity;
+  tripData.days[dayIndex].activities.push({
+    name,
+    type: $('addType').value,
+    description: $('addDesc').value.trim(),
+    time: $('addTime').value.trim(),
+    note: $('addNote').value.trim(),
+  });
+
+  closeModal('addActivityModal');
+  renderDays();
+  showToast('活动已添加', 'success');
+  editingActivity = null;
+});
+
+// ===================================================
+// Day Note
+// ===================================================
+function openDayNote(dayIndex) {
+  editingDayNote = dayIndex;
+  $('dayNoteInput').value = tripData.days[dayIndex].note || '';
+  openModal('dayNoteModal');
+}
+
+$('saveDayNoteBtn').addEventListener('click', () => {
+  if (editingDayNote === null) return;
+  tripData.days[editingDayNote].note = $('dayNoteInput').value.trim();
+  closeModal('dayNoteModal');
+  renderDays();
+  showToast('备注已保存', 'success');
+  editingDayNote = null;
+});
+
+// ===================================================
+// Hotel Setting
+// ===================================================
+let editingHotelDay = null;
+
+function openSetHotel(dayIndex) {
+  editingHotelDay = dayIndex;
+  $('hotelNameInput').value = tripData.days[dayIndex].hotel || '';
+  openModal('setHotelModal');
+  setTimeout(() => $('hotelNameInput').focus(), 100);
+}
+
+$('saveHotelBtn').addEventListener('click', () => {
+  if (editingHotelDay === null) return;
+  const name = $('hotelNameInput').value.trim();
+  tripData.days[editingHotelDay].hotel = name;
+  closeModal('setHotelModal');
+  renderDays();
+  if (typeof buildMapDayFilter === 'function') buildMapDayFilter();
+  showToast(name ? `🏨 已设置住宿：${name}` : '住宿已清除', 'success');
+  editingHotelDay = null;
+});
+
+$('clearHotelBtn').addEventListener('click', () => {
+  if (editingHotelDay === null) return;
+  tripData.days[editingHotelDay].hotel = '';
+  closeModal('setHotelModal');
+  renderDays();
+  showToast('住宿已清除', 'success');
+  editingHotelDay = null;
+});
+
+// ===================================================
+// AI Replan
+// ===================================================
+$('aiReplanBtn').addEventListener('click', () => {
+  $('replanInput').value = '';
+  openModal('replanModal');
+});
+
+$('confirmReplanBtn').addEventListener('click', async () => {
+  const instruction = $('replanInput').value.trim();
+  if (!instruction) { showToast('请说明你的调整需求', 'warning'); return; }
+
+  const apiKey = $('apiKey').value.trim();
+  if (!apiKey) { showToast('请填写 API Key', 'warning'); return; }
+
+  closeModal('replanModal');
+
+  // Show loading
+  $('tripContent').style.display = 'none';
+  $('loadingState').classList.remove('hidden');
+  $('loadingSubText').textContent = 'AI 正在根据你的要求重新规划...';
+
+  try {
+    const currentTrip = JSON.stringify(tripData.days.map((d, i) => ({
+      day: i + 1,
+      location: d.location,
+      theme: d.theme,
+      activities: d.activities.map(a => a.name),
+    })));
+
+    const userPrompt = `当前行程如下：
+${currentTrip}
+
+用户的调整要求：
+${instruction}
+
+出发城市：${$('departure').value || '未指定'}
+总天数：${calcDays(tripData.startDate, tripData.endDate) || tripData.days.length} 天
+旅行风格：${$('style').value}
+
+请根据用户要求重新规划整个行程，返回完整的 JSON 格式行程（格式与之前相同）。`;
+
+    const raw = await callAI(SYSTEM_PROMPT, userPrompt);
+    const parsed = extractJSON(raw);
+
+    tripData = {
+      ...tripData,
+      ...parsed,
+    };
+
+    renderTrip();
+    showToast('行程已重新规划！', 'success');
+  } catch (e) {
+    showToast(`重新规划失败: ${e.message}`, 'error', 5000);
+    $('tripContent').style.display = 'block';
+    console.error(e);
+  } finally {
+    $('loadingState').classList.add('hidden');
+  }
+});
+
+// ===================================================
+// AI Optimize Day
+// ===================================================
+async function aiOptimizeDay(dayIndex) {
+  const apiKey = $('apiKey').value.trim();
+  if (!apiKey) { showToast('请填写 API Key', 'warning'); return; }
+
+  const instruction = prompt(`告诉 AI 如何优化第 ${dayIndex + 1} 天的行程：\n\n例如：减少景点，增加休闲时间；加入更多美食体验；这天改去附近的小镇`);
+  if (!instruction) return;
+
+  showToast('AI 正在优化这一天的行程...', 'info', 2000);
+
+  try {
+    const day = tripData.days[dayIndex];
+    const userPrompt = `请优化以下这天的旅行行程：
+
+城市：${day.location}
+当天主题：${day.theme}
+当前活动：${JSON.stringify(day.activities)}
+
+用户要求：${instruction}
+
+请返回优化后的单天行程 JSON，格式为：
+{
+  "location": "城市名",
+  "theme": "当天主题",
+  "activities": [...]
+}`;
+
+    const raw = await callAI(SYSTEM_PROMPT, userPrompt);
+    const parsed = extractJSON(raw);
+
+    tripData.days[dayIndex] = { ...tripData.days[dayIndex], ...parsed };
+    renderDays();
+    showToast(`第 ${dayIndex + 1} 天行程已优化`, 'success');
+  } catch (e) {
+    showToast(`优化失败: ${e.message}`, 'error', 5000);
+    console.error(e);
+  }
+}
+
+// ===================================================
+// Export
+// ===================================================
+$('exportBtn').addEventListener('click', () => {
+  if (!tripData) return;
+
+  let text = `${tripData.title}\n`;
+  text += `${tripData.summary || ''}\n`;
+  if (tripData.startDate && tripData.endDate) {
+    text += `${formatDate(tripData.startDate)} - ${formatDate(tripData.endDate)}（${calcDays(tripData.startDate, tripData.endDate)} 天）\n`;
+  }
+  text += '\n' + '═'.repeat(40) + '\n\n';
+
+  tripData.days.forEach((day, i) => {
+    const dateStr = getDayDate(tripData.startDate, i);
+    text += `📅 第 ${i + 1} 天 · ${day.location} · ${day.theme}\n`;
+    text += `   ${dateStr}\n\n`;
+    (day.activities || []).forEach(act => {
+      text += `  ${getTypeEmoji(act.type)} ${act.name}`;
+      if (act.time) text += `  [${act.time}]`;
+      text += '\n';
+      if (act.description) text += `     ${act.description}\n`;
+      if (act.note) text += `     💡 ${act.note}\n`;
+    });
+    if (day.note) text += `\n  📝 备注：${day.note}\n`;
+    text += '\n';
+  });
+
+  $('exportText').textContent = text;
+  openModal('exportModal');
+});
+
+$('copyExportBtn').addEventListener('click', () => {
+  navigator.clipboard.writeText($('exportText').textContent)
+    .then(() => showToast('已复制到剪贴板', 'success'))
+    .catch(() => showToast('复制失败，请手动选择文本', 'error'));
+});
+
+$('printBtn').addEventListener('click', () => window.print());
+
+// Close modal on overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) overlay.classList.add('hidden');
+  });
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay:not(.hidden)').forEach(m => m.classList.add('hidden'));
+  }
+});
+
+// ===================================================
+// Tab Switch
+// ===================================================
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    $(`tab${btn.dataset.tab.charAt(0).toUpperCase() + btn.dataset.tab.slice(1)}`).classList.add('active');
+    if (btn.dataset.tab === 'map') {
+      initMap();
+      refreshMap();
+    }
+  });
+});
+
+// ===================================================
+// Leaflet Map
+// ===================================================
+let leafletMap = null;
+let mapMarkers = [];
+let mapLines = [];
+let mapActiveDays = new Set(); // 当前显示的天
+
+function initMap() {
+  if (leafletMap) return; // 已初始化
+  leafletMap = L.map('mapContainer').setView([41.9, 12.5], 6);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/">CARTO</a>',
+    subdomains: 'abcd',
+    maxZoom: 20,
+  }).addTo(leafletMap);
+}
+
+// 颜色映射（每天一个颜色）
+const DAY_COLORS = [
+  '#4f6ef7','#e74c3c','#2ecc71','#f39c12','#9b59b6',
+  '#1abc9c','#e67e22','#3498db','#e91e63','#00bcd4',
+  '#ff5722','#607d8b','#8bc34a','#ffc107','#673ab7',
+];
+
+function getTypeColor(type) {
+  return { attraction: '#4f6ef7', food: '#ff7043', hotel: '#34c759', transport: '#9b59b6', activity: '#f39c12', rest: '#95a5a6' }[type] || '#4f6ef7';
+}
+
+function refreshMap() {
+  if (!leafletMap || !tripData) return;
+
+  // 清除旧 markers 和 lines
+  mapMarkers.forEach(m => m.remove());
+  mapLines.forEach(l => l.remove());
+  mapMarkers = [];
+  mapLines = [];
+
+  const bounds = [];
+
+  tripData.days.forEach((day, dayIdx) => {
+    if (!day._detailLoaded) return; // 只显示已加载详情的天
+    if (mapActiveDays.size > 0 && !mapActiveDays.has(dayIdx)) return;
+
+    const color = DAY_COLORS[dayIdx % DAY_COLORS.length];
+    const dayCoords = []; // 收集当天有坐标的活动
+
+    (day.activities || []).forEach((act, actIdx) => {
+      if (!act.lat || !act.lng) return;
+      const coord = [act.lat, act.lng];
+      dayCoords.push(coord);
+      bounds.push(coord);
+
+      // 自定义图标
+      const dotColor = getTypeColor(act.type);
+      const icon = L.divIcon({
+        html: `<div style="
+          background:${dotColor};
+          border:2px solid white;
+          border-radius:50%;
+          width:14px; height:14px;
+          box-shadow:0 1px 4px rgba(0,0,0,.3);
+          position:relative;
+        ">
+          <div style="
+            position:absolute;
+            top:-22px; left:50%;
+            transform:translateX(-50%);
+            background:${color};
+            color:white;
+            padding:1px 5px;
+            border-radius:4px;
+            font-size:10px;
+            white-space:nowrap;
+            font-weight:600;
+            box-shadow:0 1px 3px rgba(0,0,0,.2);
+          ">D${dayIdx+1}</div>
+        </div>`,
+        className: '',
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
+      });
+
+      const marker = L.marker(coord, { icon })
+        .addTo(leafletMap)
+        .bindPopup(`
+          <div style="min-width:180px">
+            <div style="font-weight:700;margin-bottom:4px;">${act.name}</div>
+            <div style="font-size:12px;color:#666;margin-bottom:4px;">📅 第${dayIdx+1}天 · ${day.location}</div>
+            ${act.time ? `<div style="font-size:12px;color:#888;">🕐 ${act.time}</div>` : ''}
+            ${act.description ? `<div style="font-size:12px;margin-top:6px;line-height:1.5;">${act.description}</div>` : ''}
+            ${act.transport_to_next ? `<div style="font-size:12px;margin-top:6px;color:#9b59b6;">🚋 ${act.transport_to_next}</div>` : ''}
+          </div>
+        `);
+      mapMarkers.push(marker);
+    });
+
+    // 绘制当天路线
+    if (dayCoords.length >= 2) {
+      const line = L.polyline(dayCoords, {
+        color,
+        weight: 3,
+        opacity: 0.7,
+        dashArray: '6,4',
+      }).addTo(leafletMap);
+      mapLines.push(line);
+    }
+  });
+
+  // 住宿标记（独立标注，使用绿色大图标，不依赖 _detailLoaded）
+  tripData.days.forEach((day, dayIdx) => {
+    if (!day.hotel) return;
+    if (mapActiveDays.size > 0 && !mapActiveDays.has(dayIdx)) return;
+    // 尝试用当天最后一个有坐标的活动作为住宿位置
+    const acts = (day.activities || []).filter(a => a.lat && a.lng);
+    const lastAct = acts[acts.length - 1];
+    if (!lastAct) return;
+    const coord = [lastAct.lat, lastAct.lng];
+    bounds.push(coord);
+    const hotelIcon = L.divIcon({
+      html: `<div style="
+        background:#34c759;
+        border:2px solid white;
+        border-radius:6px;
+        width:20px; height:20px;
+        display:flex;align-items:center;justify-content:center;
+        font-size:11px;
+        box-shadow:0 2px 6px rgba(0,0,0,.3);
+        position:relative;
+      ">🏨
+        <div style="
+          position:absolute;
+          bottom:-22px; left:50%;
+          transform:translateX(-50%);
+          background:#34c759;
+          color:white;
+          padding:1px 5px;
+          border-radius:4px;
+          font-size:9px;
+          white-space:nowrap;
+          font-weight:600;
+          max-width:80px;
+          overflow:hidden;
+          text-overflow:ellipsis;
+          box-shadow:0 1px 3px rgba(0,0,0,.2);
+        ">${day.hotel.slice(0,10)}</div>
+      </div>`,
+      className: '',
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
+    });
+    const marker = L.marker(coord, { icon: hotelIcon })
+      .addTo(leafletMap)
+      .bindPopup(`<div style="min-width:150px"><div style="font-weight:700;color:#34c759;">🏨 住宿</div><div style="margin-top:4px;">${day.hotel}</div><div style="font-size:11px;color:#888;margin-top:2px;">第${dayIdx+1}天 · ${day.location}</div></div>`);
+    mapMarkers.push(marker);
+  });
+
+  if (bounds.length > 0) {
+    leafletMap.fitBounds(bounds, { padding: [40, 40] });
+  }
+
+  // 强制 resize（切换 tab 后 leaflet 需要重新计算尺寸）
+  setTimeout(() => leafletMap.invalidateSize(), 100);
+}
+
+function buildMapDayFilter() {
+  if (!tripData) return;
+  const container = $('mapDayFilter');
+  container.innerHTML = '';
+
+  // 全部按钮
+  const allBtn = document.createElement('button');
+  allBtn.className = 'day-filter-btn active';
+  allBtn.textContent = '全部';
+  allBtn.onclick = () => {
+    mapActiveDays.clear();
+    container.querySelectorAll('.day-filter-btn').forEach(b => b.classList.remove('active'));
+    allBtn.classList.add('active');
+    refreshMap();
+  };
+  container.appendChild(allBtn);
+
+  tripData.days.forEach((day, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'day-filter-btn';
+    btn.style.borderColor = DAY_COLORS[i % DAY_COLORS.length];
+    btn.innerHTML = `<span style="color:${DAY_COLORS[i % DAY_COLORS.length]}">●</span> 第${i+1}天 ${day.location}`;
+    btn.onclick = () => {
+      const all = container.querySelector('.day-filter-btn');
+      all.classList.remove('active');
+      if (mapActiveDays.has(i)) {
+        mapActiveDays.delete(i);
+        btn.classList.remove('active');
+      } else {
+        mapActiveDays.add(i);
+        btn.classList.add('active');
+      }
+      if (mapActiveDays.size === 0) all.classList.add('active');
+      refreshMap();
+    };
+    container.appendChild(btn);
+  });
+}
+
+// ===================================================
+// 分享功能
+// ===================================================
+$('shareBtn').addEventListener('click', () => {
+  // 将当前行程数据序列化为 base64 嵌入 URL hash
+  try {
+    const shareData = {
+      title: tripData.title,
+      summary: tripData.summary,
+      destinations: tripData.destinations,
+      startDate: tripData.startDate,
+      endDate: tripData.endDate,
+      days: tripData.days.map(d => ({
+        location: d.location,
+        theme: d.theme,
+        note: d.note || '',
+        _detailLoaded: d._detailLoaded,
+        activities: (d.activities || []).map(a => ({
+          name: a.name,
+          type: a.type,
+          time: a.time,
+          description: a.description || '',
+          note: a.note || '',
+          lat: a.lat || 0,
+          lng: a.lng || 0,
+          transport_to_next: a.transport_to_next || '',
+        })),
+      })),
+    };
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(shareData))));
+    const url = `${location.href.split('#')[0]}#data=${encoded}`;
+
+    navigator.clipboard.writeText(url)
+      .then(() => showToast('分享链接已复制！发给朋友即可查看（他们需要自己填 API Key）', 'success', 5000))
+      .catch(() => {
+        prompt('复制以下分享链接：', url);
+      });
+  } catch(e) {
+    showToast('生成分享链接失败', 'error');
+    console.error(e);
+  }
+});
+
+// 页面加载时检查 URL hash 是否有分享数据
+function loadFromHash() {
+  const hash = location.hash;
+  if (!hash.startsWith('#data=')) return;
+  try {
+    const encoded = hash.slice(6);
+    const json = decodeURIComponent(escape(atob(encoded)));
+    const data = JSON.parse(json);
+    tripData = data;
+    renderTrip();
+    $('contentArea').scrollTo({ top: 0 });
+    $('loadingState').classList.add('hidden');
+    $('emptyState').classList.add('hidden');
+    $('tripContent').style.display = 'block';
+    $('exportBtn').style.display = '';
+    $('printBtn').style.display = '';
+    showToast('已加载分享的行程 🎉', 'success', 3000);
+  } catch(e) {
+    console.error('无法加载分享数据', e);
+  }
+}
+loadFromHash();
+</script>
+</body>
+</html>
